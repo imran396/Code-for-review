@@ -1,0 +1,1058 @@
+<?php
+
+use Laminas\View\Renderer\PhpRenderer;
+use Sam\Bidder\BidderInfo\BidderInfoRenderer;
+use Sam\Billing\Payment\Render\PaymentRenderer;
+use Sam\Core\Constants;
+use Sam\Core\Invoice\StackedTax\Calculate\StackedTaxInvoicePureCalculator;
+use Sam\Core\User\Render\UserPureRenderer;
+use Sam\CustomField\User\Render\Web\UserCustomFieldListWebRenderer;
+use Sam\Invoice\Common\Render\InvoiceRenderer;
+use Sam\Invoice\StackedTax\View\IsolatedInvoiceView\Internal\IsolatedInvoiceViewModel;
+use Sam\Lot\Category\Renderer\LotCategoryRenderer;
+use Sam\User\Identification\UserIdentificationTransformer;
+use Sam\User\Render\UserRenderer;
+
+/**
+ * @var IsolatedInvoiceViewModel|PhpRenderer $this
+ */
+// @formatter:off
+?>
+<article class="bodybox stacked-tax-invoice-print">
+    <div class="viewtitle">
+        <figure>
+            <a href="#"><?php echo InvoiceRenderer::new()->renderLogoTag($this->invoice) ?></a>
+        </figure>
+
+        <h3>
+            <span><?php echo $this->renderHelper->renderInvoiceAddress($this->invoice) ?></span>
+        </h3>
+
+        <div class="clearfix"></div>
+    </div>
+    <ul class="viewinfo">
+        <li>
+            <div>
+                <em><?php echo $this->translator->translate('MYINVOICES_DETAIL_BILLINGINFO', 'myinvoices') ?></em>
+<?php
+if (!$this->isMultipleSale) {
+    $bidderInfo = BidderInfoRenderer::new()->renderInfo(userId: $this->invoice->BidderId, auctionId: $this->auctionId, isReadOnlyDb: true, languageId: $this->languageId)
+?>
+                <div class="bidder-num">
+                    <?php echo is_numeric($bidderInfo) ? $this->translator->translate('MYINVOICES_BIDDER_NUMBER', 'myinvoices') : '' ?>
+                    <?php echo $bidderInfo ?>
+                </div>
+<?php
+}
+?>
+                <div class="company"><?php echo ee($this->userBilling?->CompanyName) ?></div>
+                <div class="name">
+                    <?php echo ee(UserPureRenderer::new()->renderFullName($this->userBilling) ?: UserPureRenderer::new()->renderFullName($this->bidderUserInfo)) ?>
+                </div>
+                <?php echo $this->partial('default/user-address.phtml', ['userObject' => $this->userBilling])?>
+                <div class="email"><?php echo ee($this->bidderUser->Email) ?></div>
+<?php
+if (
+    $this->isInvoiceIdentification
+    && $this->bidderUserInfo
+    && !$this->bidderUserInfo->isNoneIdentificationType()
+) {
+?>
+                <div class="vat">
+                    <?php echo UserRenderer::new()->makeIdentificationTypeTranslated($this->bidderUserInfo->IdentificationType) ?>:
+                    <?php echo UserIdentificationTransformer::new()->render($this->bidderUserInfo->Identification, $this->bidderUserInfo->IdentificationType);?>
+                </div>
+<?php
+}
+?>
+            </div>
+            <div>
+                <?php echo UserCustomFieldListWebRenderer::new()->renderList($this->invoice->BidderId, $this->userCustomFields) ?>
+            </div>
+        </li>
+        <li>
+            <div>
+<?php
+if ($this->userShipping) {
+?>
+
+                <em><?php echo $this->translator->translate('MYINVOICES_DETAIL_SHIPPINGINFO', 'myinvoices') ?></em>
+                <div class="company"><?php echo ee($this->userShipping->CompanyName) ?></div>
+                <div class="name"><?php echo ee(UserPureRenderer::new()->renderFullName($this->userShipping)) ?></div>
+                <?php echo $this->partial('default/user-address.phtml', ['userObject' => $this->userShipping])?>
+<?php
+}
+?>
+            </div>
+        </li>
+        <li>
+            <div>
+                <em>
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_INVOICENUM', 'myinvoices') ?>&nbsp;
+                    <?php echo $this->invoice->InvoiceNo ?>
+                </em>
+                <p>
+                    <div class="sale <?php echo count($this->invoiceAuctions) === 1 ? 'single' : ''?>">
+<?php
+if (!$this->isMultipleSale) {
+    foreach ($this->invoiceAuctions as $invoiceAuction) {
+        $auctionDateFormatted = $this->renderHelper->renderAuctionDate(
+            $invoiceAuction->SaleDate,
+            $invoiceAuction->AuctionType,
+            $invoiceAuction->EventType,
+            $this->invoice->AccountId,
+            $this->languageId
+        );
+?>
+                        <section class="sale-name">
+                            <span class="label"><?php echo $this->translator->translate('MYINVOICES_DETAIL_SALE', 'myinvoices')?>: </span>
+                            <span class="value"><?php echo $invoiceAuction->Name ?> (<?php echo $invoiceAuction->SaleNo ?>)</span>
+                        </section>
+                        <section class="sale-date">
+                            <span class="label"><?php echo $this->translator->translate('MYINVOICES_DETAIL_SALEDATE', 'myinvoices')?>: </span>
+                            <span class="value"><?php echo $auctionDateFormatted ?></span>
+                        </section>
+<?php
+    }
+}
+?>
+                    </div>
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_DATECREATED', 'myinvoices')?>:
+                    <?php echo $this->renderHelper->renderDate(
+                            $this->invoice->InvoiceDate ?: new DateTime($this->invoice->CreatedOn),
+                                $this->invoice->AccountId,
+                                $this->languageId
+                            ) ?>
+                    <br />
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_STATUS', 'myinvoices') ?>:
+                    <?php echo InvoiceRenderer::new()->makePaymentStatusTranslated(invoiceStatus: $this->invoice->InvoiceStatusId, languageId: $this->languageId) ?>
+                </p>
+                <p class="ttl">
+                    <span><?php echo $this->translator->translate('MYINVOICES_DETAIL_BALANCE', 'myinvoices')?>:</span>
+                    <?php echo $this->currencySign ?><?php echo $this->numberFormatter->formatMoney($this->invoice->calcBalanceDue())?>
+                </p>
+            </div>
+        </li>
+    </ul>
+    <div class="tablesection">
+        <table class="footable foolarge invoice-datagrid borderOne" id="c2">
+            <caption><?php echo $this->translator->translate('MYINVOICES_DETAIL_GOODS', 'myinvoices') ?></caption>
+            <thead>
+            <tr>
+                <th class="lot-no">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_LOTNUM', 'myinvoices') ?>
+                </th>
+                <th class="item-no">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_ITEMNUM', 'myinvoices') ?>
+                </th>
+                <th class="lot-name">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_ITEMNAME', 'myinvoices') ?>
+                </th>
+<?php
+if ($this->isShowCategory) {
+?>
+                <th class="lot-category">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_CATEGORY', 'myinvoices') ?>
+                </th>
+<?php
+}
+?>
+
+<?php
+if ($this->isMultipleSale) {
+?>
+                <th class="sale-name">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SALE', 'myinvoices') ?>
+                </th>
+                <th class="sale-no">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SALENO', 'myinvoices') ?>
+                </th>
+                <th class="sale-date">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SALEDATE', 'myinvoices') ?>
+                </th>
+                <th class="bidder-num">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_BIDDERNUM', 'myinvoices') ?>
+                </th>
+<?php
+}
+?>
+<?php
+if ($this->isShowQuantity) {
+?>
+                <th class="qty">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_QUANTITY', 'myinvoices') ?>
+                </th>
+<?php
+}
+?>
+                <th class="hp">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_HAMMER', 'myinvoices') ?>,
+                    <?php echo $this->currencySign ?>
+                </th>
+                <th class="bp">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_BUYERSPREMIUM', 'myinvoices') ?>,
+                    <?php echo $this->currencySign ?>
+                </th>
+                <th class="hp-bp">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_HPWITHBP', 'myinvoices') ?>,
+                    <?php echo $this->currencySign ?>
+                </th>
+<?php
+if ($this->isTaxSeparatedRendering) {
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <th class="hp-country-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTRY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_HAMMER_PRICE
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <th class="hp-state-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_STATE,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_HAMMER_PRICE
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <th class="hp-county-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_HAMMER_PRICE
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <th class="hp-city-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_CITY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_HAMMER_PRICE
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <th class="bp-country-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTRY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_BUYERS_PREMIUM
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <th class="bp-state-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_STATE,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_BUYERS_PREMIUM
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <th class="bp-county-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_BUYERS_PREMIUM
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <th class="bp-city-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_CITY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_BUYERS_PREMIUM
+                    ) ?>
+                </th>
+<?php
+    }
+}
+?>
+<?php
+if ($this->isTaxUnitedRendering) {
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <th class="country-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                    $this->taxCountry,
+                    Constants\StackedTax::GT_COUNTRY,
+                    $this->invoice->AccountId,
+                    $this->languageId,
+                    $this->currencySign
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <th class="state-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                    $this->taxCountry,
+                    Constants\StackedTax::GT_STATE,
+                    $this->invoice->AccountId,
+                    $this->languageId,
+                    $this->currencySign
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <th class="county-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                    $this->taxCountry,
+                    Constants\StackedTax::GT_COUNTY,
+                    $this->invoice->AccountId,
+                    $this->languageId,
+                    $this->currencySign
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <th class="city-tax-amount">
+                    <?php echo $this->renderHelper->translateGeoType(
+                    $this->taxCountry,
+                    Constants\StackedTax::GT_CITY,
+                    $this->invoice->AccountId,
+                    $this->languageId,
+                    $this->currencySign
+                    ) ?>
+                </th>
+<?php
+    }
+}
+?>
+            </tr>
+            </thead>
+            <tbody>
+<?php
+foreach ($this->invoiceItemDtos as $index => $invoiceItemDto) {
+?>
+            <tr class="<?php echo $index%2 === 0 ? 'alternate': '' ?>">
+                <td class="lot-no">
+                    <?php echo $invoiceItemDto->lotNo ?>
+                </td>
+                <td class="item-no">
+                    <?php echo $invoiceItemDto->itemNo ?>
+                </td>
+                <td class="lot-name">
+                    <?php echo $invoiceItemDto->lotName ?>
+                </td>
+<?php
+    if ($this->isShowCategory) {
+?>
+                <td class="lot-category">
+                    <?php echo LotCategoryRenderer::new()->getCategoriesText($invoiceItemDto->lotItemId) ?>
+                </td>
+<?php
+    }
+?>
+<?php
+    if ($this->isMultipleSale) {
+?>
+                <td class="sale-name">
+                    <?php echo $invoiceItemDto->auctionName?>
+                </td>
+                <td class="sale-no">
+                    <?php echo $invoiceItemDto->saleNo?>
+                </td>
+                <td class="sale-date">
+                    <?php echo $this->renderHelper->renderAuctionDate(
+                            $invoiceItemDto->saleDateIso ? new DateTime($invoiceItemDto->saleDateIso) : null,
+                            $invoiceItemDto->auctionType,
+                            $invoiceItemDto->eventType,
+                            $this->invoice->AccountId,
+                            $this->languageId
+                    ) ?>
+                </td>
+                <td class="bidder-num">
+                    <?php echo $invoiceItemDto->bidderNum ?>
+                </td>
+<?php
+    }
+?>
+<?php
+    if ($this->isShowQuantity) {
+?>
+                <td class="qty">
+                    <?php echo $this->renderHelper->renderQuantity(
+                            $invoiceItemDto->quantity,
+                            $invoiceItemDto->quantityScale,
+                            $this->invoice->AccountId
+                    ) ?>
+                </td>
+<?php
+    }
+?>
+                <td class="hp">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->hp) ?>
+                </td>
+                <td class="bp">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->bp)?>
+                </td>
+                <td class="hp-bp">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->calcHpBp())?>
+                </td>
+<?php
+    if ($this->isTaxSeparatedRendering) {
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <td class="hp-country-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->hpCountryTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <td class="hp-state-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->hpStateTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <td class="hp-county-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->hpCountyTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <td class="hp-city-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->hpCityTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <td class="bp-country-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->bpCountryTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <td class="bp-state-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->bpStateTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <td class="bp-county-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->bpCountyTaxAmount)?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <td class="bp-city-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->bpCityTaxAmount)?>
+                </td>
+<?php
+        }
+    }
+?>
+<?php
+    if ($this->isTaxUnitedRendering) {
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <td class="country-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->calcCountryTaxAmount())?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <td class="state-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->calcStateTaxAmount())?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <td class="county-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->calcCountyTaxAmount())?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <td class="city-tax-amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceItemDto->calcCityTaxAmount())?>
+                </td>
+<?php
+        }
+    }
+?>
+
+
+
+
+            </tr>
+<?php
+    if ($this->lotCustomFields) {
+?>
+        <tr class="custom-field-row <?php echo $index % 2 === 0 ? 'alternate': '' ?>">
+            <td class="item-custom-field" colspan="25">
+<?php
+        foreach ($this->lotCustomFields as $customField) {
+?>
+                <div>
+                    <span class="custom-field-label"><?php echo ee($customField->Name) ?></span><span class="separator">:</span>
+                    <span class="custom-field-value"><?php echo $this->renderHelper->renderLotCustomFieldValue($invoiceItemDto->getCustomFieldData($customField->Id), $customField) ?></span>
+                </div>
+<?php
+        }
+?>
+            </td>
+        </tr>
+<?php
+    }
+?>
+<?php
+}
+?>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="<?php echo $this->renderHelper->calculateSubtotalColSpan($this->invoice->AccountId) ?>"></td>
+                    <td class="hp">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->hammerPrice)?>
+                    </td>
+                    <td class="bp">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->buyersPremium)?>
+                    </td>
+                    <td class="hp-bp">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->calcHpWithBp())?>
+                    </td>
+<?php
+if ($this->isTaxSeparatedRendering) {
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                    <td class="hp-country-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->hpCountryTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                    <td class="hp-state-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->hpStateTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                    <td class="hp-county-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->hpCountyTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                    <td class="hp-city-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->hpCityTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                    <td class="bp-country-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->bpCountryTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                    <td class="bp-state-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->bpStateTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                    <td class="bp-county-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->bpCountyTaxAmount)?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                    <td class="bp-city-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->bpCityTaxAmount)?>
+                    </td>
+<?php
+    }
+}
+?>
+<?php
+if ($this->isTaxUnitedRendering) {
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                    <td class="country-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->calcCountryTaxAmount())?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                    <td class="state-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->calcStateTaxAmount())?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                    <td class="county-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->calcCountyTaxAmount())?>
+                    </td>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                    <td class="city-tax-amount">
+                        <?php echo $this->numberFormatter->formatMoney($this->invoiceItemSubtotal->calcCityTaxAmount())?>
+                    </td>
+<?php
+    }
+}
+?>
+                </tr>
+            </tfoot>
+        </table>
+        <div class="subtotal-caption"><?php echo $this->translator->translate('MYINVOICES_DETAIL_GOODSSUBTOTAL', 'myinvoices') ?></div>
+    </div>
+    <div class="tablesection">
+        <table class="footable foolarge invoice-services-datagrid borderOne">
+        <caption><?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICES', 'myinvoices') ?></caption>
+            <thead>
+            <tr>
+                <th class="type">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICETYPE', 'myinvoices') ?>
+                </th>
+                <th class="name">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICENAME', 'myinvoices') ?>
+                </th>
+                <th class="notes">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICENOTES', 'myinvoices') ?>
+                </th>
+                <th class="amount">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICEAMOUNT', 'myinvoices') ?>,
+                    <?php echo $this->currencySign ?>
+                </th>
+<?php
+if (
+    $this->isTaxSeparatedRendering
+    || $this->isTaxUnitedRendering
+) {
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <th class="country-tax">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTRY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_SERVICES
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <th class="state-tax">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_STATE,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_SERVICES
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <th class="county-tax">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_COUNTY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_SERVICES
+                    ) ?>
+                </th>
+<?php
+    }
+    if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <th class="city-tax">
+                    <?php echo $this->renderHelper->translateGeoType(
+                        $this->taxCountry,
+                        Constants\StackedTax::GT_CITY,
+                        $this->invoice->AccountId,
+                        $this->languageId,
+                        $this->currencySign,
+                        Constants\StackedTax::AS_SERVICES
+                    ) ?>
+                </th>
+<?php
+    }
+?>
+
+                <th class="amount-with-tax">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICEAMOUNTWITHTAX', 'myinvoices') ?>
+                    <?php echo $this->currencySign ?>
+                </th>
+<?php
+}
+?>
+            </tr>
+            </thead>
+            <tbody>
+<?php
+$totalAmount = 0;
+$totalAmountWithTax = 0;
+$countryTaxTotal = $stateTaxTotal = $countyTaxTotal = $cityTaxTotal = 0;
+foreach ($this->invoiceAdditionals as $index => $invoiceAdditional) {
+    $amountWithTax = StackedTaxInvoicePureCalculator::new()
+        ->calcServicesWithTax($invoiceAdditional->Amount, $invoiceAdditional->TaxAmount);
+    $totalAmount += $invoiceAdditional->Amount;
+    $totalAmountWithTax += $amountWithTax;
+    $countryTaxTotal += $invoiceAdditional->CountryTaxAmount;
+    $stateTaxTotal += $invoiceAdditional->StateTaxAmount;
+    $countyTaxTotal += $invoiceAdditional->CountyTaxAmount;
+    $cityTaxTotal += $invoiceAdditional->CityTaxAmount;
+?>
+            <tr class="<?php echo $index % 2 === 0 ? 'alternate': '' ?>">
+                <td class="type">
+                    <?php echo InvoiceRenderer::new()->makeServiceTypeTranslated($invoiceAdditional->Type, null, $this->languageId) ?>
+                </td>
+                <td class="name">
+                    <?php echo $invoiceAdditional->Name ?>
+                </td>
+                <td class="notes">
+                    <?php echo nl2br(ee($invoiceAdditional->Note)) ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceAdditional->Amount) ?>
+                </td>
+<?php
+    if (
+        $this->isTaxSeparatedRendering
+        || $this->isTaxUnitedRendering
+    ) {
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <td class="country-tax">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceAdditional->CountryTaxAmount) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <td class="state-tax">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceAdditional->StateTaxAmount) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <td class="county-tax">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceAdditional->CountyTaxAmount) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <td class="city-tax">
+                    <?php echo $this->numberFormatter->formatMoney($invoiceAdditional->CityTaxAmount) ?>
+                </td>
+<?php
+        }
+?>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($amountWithTax) ?>
+                </td>
+<?php
+    }
+?>
+            </tr>
+<?php
+}
+?>
+            </tbody>
+            <tfoot>
+            <tr>
+                <td class="type" colspan="3">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_SERVICESUBTOTAL', 'myinvoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($totalAmount) ?>
+                </td>
+<?php
+if (
+    $this->isTaxSeparatedRendering
+    || $this->isTaxUnitedRendering
+) {
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTRY)) {
+?>
+                <td class="country-tax">
+                    <?php echo $this->numberFormatter->formatMoney($countryTaxTotal) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_STATE)) {
+?>
+                <td class="state-tax">
+                    <?php echo $this->numberFormatter->formatMoney($stateTaxTotal) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_COUNTY)) {
+?>
+                <td class="county-tax">
+                    <?php echo $this->numberFormatter->formatMoney($countyTaxTotal) ?>
+                </td>
+<?php
+        }
+        if ($this->renderHelper->hasGeoTax($this->taxCountry, Constants\StackedTax::GT_CITY)) {
+?>
+                <td class="city-tax">
+                    <?php echo $this->numberFormatter->formatMoney($cityTaxTotal) ?>
+                </td>
+<?php
+        }
+?>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($totalAmountWithTax) ?>
+                </td>
+<?php
+}
+?>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="tablesection">
+        <table class="footable foolarge invoice-datagrid borderOne">
+            <caption><?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_PANEL_CAPTION', 'stacked_tax_invoices') ?></caption>
+            <thead>
+            <tr>
+                <th></th>
+                <th class="amount">
+                    <?php echo sprintf($this->translator->translate('TOTALS_BEFORE_PAYMENT_AMOUNT_TITLE', 'stacked_tax_invoices'), $this->currencySign); ?>
+                </th>
+                <th class="tax">
+                    <?php echo sprintf($this->translator->translate('TOTALS_BEFORE_PAYMENT_AMOUNT_TAX_TITLE', 'stacked_tax_invoices'),  $this->currencySign); ?>
+                </th>
+                <th class="amount-with-tax">
+                    <?php echo sprintf($this->translator->translate('TOTALS_BEFORE_PAYMENT_AMOUNT_WITH_TAX_TITLE', 'stacked_tax_invoices'), $this->currencySign); ?>
+                </th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td>
+                    <?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_HAMMER_PRICE_LABEL', 'stacked_tax_invoices'); ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->BidTotal) ?>
+                </td>
+                <td class="tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->HpTaxTotal) ?>
+                </td>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcHpWithTax()) ?>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_BUYERS_PREMIUM_LABEL', 'stacked_tax_invoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->BuyersPremium) ?>
+                </td>
+                <td class="tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->BpTaxTotal) ?>
+                </td>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcBpWithTax()) ?>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_SERVICES_LABEL', 'stacked_tax_invoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->ExtraCharges) ?>
+                </td>
+                <td class="tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->ServicesTaxTotal) ?>
+                </td>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcServicesWithTax()) ?>
+                </td>
+            </tr>
+            </tbody>
+            <tfoot>
+            <tr>
+                <td>
+                    <?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_GRAND_TOTALS_BEFORE_DISCOUNT_SURCHARGE_LABEL', 'stacked_tax_invoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcNetTotal()) ?>
+                </td>
+                <td class="tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcTaxTotal()) ?>
+                </td>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcInvoiceTotal()) ?>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <?php echo $this->translator->translate('TOTALS_BEFORE_PAYMENT_GRAND_TOTALS_BEFORE_PAYMENT_LABEL', 'stacked_tax_invoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcNetTotal()) ?>
+                </td>
+                <td class="tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcTaxTotal()) ?>
+                </td>
+                <td class="amount-with-tax">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcInvoiceTotal()) ?>
+                </td>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="tablesection">
+        <table class="footable foolarge invoice-payments-datagrid borderOne">
+            <caption><?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTS', 'myinvoices') ?></caption>
+            <thead>
+            <tr>
+                <th class="method">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTMETHOD', 'myinvoices') ?>
+                </th>
+                <th class="date">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTDATE', 'myinvoices') ?>
+                </th>
+                <th class="note">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTNOTE', 'myinvoices') ?>
+                </th>
+                <th class="amount">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTAMOUNT', 'myinvoices') ?>,
+                    <?php echo $this->currencySign ?>
+                </th>
+            </tr>
+            </thead>
+            <tbody>
+<?php
+foreach ($this->payments as $index => $payment) {
+?>
+            <tr class="<?php echo $index % 2 === 0 ? 'alternate': '' ?>">
+                <td class="method">
+                    <?php echo PaymentRenderer::new()->makePaymentMethodTranslated($payment->PaymentMethodId, null, $this->languageId) ?>
+                    <?php echo $this->renderHelper->renderCreditCardName($payment->PaymentMethodId, $payment->CreditCardId) ?>
+                </td>
+                <td class="date">
+                    <?php echo $this->renderHelper->renderDate($payment->PaidOn, $this->invoice->AccountId, $this->languageId) ?>
+                </td>
+                <td class="note">
+                    <?php echo ee($payment->Note) ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($payment->Amount) ?>
+                </td>
+            </tr>
+<?php
+}
+?>
+            </tbody>
+            <tfoot>
+            <tr>
+                <td class="payment-subtotal" colspan="3">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_PAYMENTSUBTOTAL', 'myinvoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->TotalPayment) ?>
+                </td>
+            </tr>
+            <tr>
+                <td class="balance-due" colspan="3">
+                    <?php echo $this->translator->translate('MYINVOICES_DETAIL_BALANCE', 'myinvoices') ?>
+                </td>
+                <td class="amount">
+                    <?php echo $this->numberFormatter->formatMoney($this->invoice->calcBalanceDue()) ?>
+                </td>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+<?php
+if (trim($this->invoice->Note) !== '') {
+?>
+    <div class="invoice-notes">
+        <h4><?php echo $this->translator->translate('MYINVOICES_DETAIL_NOTES', 'myinvoices')?></h4>
+        <section>
+            <?php echo nl2br(ee($this->invoice->Note))?>
+        </section>
+    </div>
+<?php
+}
+?>
+    <div class="clear"></div>
+</article>
+<div class="clear page-break"></div>

@@ -1,0 +1,25 @@
+<?php
+
+use Sam\Core\Address\Render\AddressRenderer;
+
+/** @var InvoiceUserBilling|InvoiceUserShipping $userObject */
+$userObject = $this->userObject;
+// @formatter:off
+?>
+<?php
+if ($userObject) {
+?>
+    <div class="address"><?php echo ee($userObject->Address) ?></div>
+    <div class="address2"><?php echo ee($userObject->Address2) ?></div>
+    <div class="address3"><?php echo ee($userObject->Address3) ?></div>
+    <div>
+        <span class="city"><?php echo ee($userObject->City) ?></span>
+        <span class="state"><?php echo ee(AddressRenderer::new()->stateName($userObject->State, $userObject->Country)) ?></span>
+        <span class="zip"><?php echo ee($userObject->Zip) ?></span>
+    </div>
+    <div class="country"><?php echo ee(AddressRenderer::new()->countryName($userObject->Country)) ?></div>
+    <div class="phone"><?php echo ee($userObject->Phone) ?></div>
+    <div class="fax"><?php echo ee($userObject->Fax) ?></div>
+<?php
+}
+?>
